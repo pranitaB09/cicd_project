@@ -10,7 +10,7 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                git 'https://github.com/pranitaB09/cicd_project'
+                git branch: 'main', url: 'https://github.com/pranitaB09/cicd_project'
             }
         }
 
