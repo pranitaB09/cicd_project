@@ -1,64 +1,118 @@
 pipeline {
-    agent any
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: jnlp
+      image: jenkins/inbound-agent
+      args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
 
-    environment {
-        SONARQUBE_SERVER = 'sonarqube'  // Jenkins SonarQube server name
+    - name: scanner
+      image: sonarsource/sonar-scanner-cli:latest
+      command: ['cat']
+      tty: true
+
+    - name: dind
+      image: docker:dind
+      securityContext:
+        privileged: true
+      env:
+        - name: DOCKER_TLS_CERTDIR
+          value: ""
+      tty: true
+
+    - name: kubectl
+      image: bitnami/kubectl:latest
+      command: ['cat']
+      tty: true
+"""
+        }
     }
 
-    tools {
-        nodejs "node18"              // NodeJS installation in Jenkins
-        sonarScanner "sonar-scanner" // SonarQube Scanner installation
+    environment {
+        SONAR_HOST_URL = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
+        SONAR_PROJECT_KEY = '2401020_Restaurant_Reservation'
+
+        NEXUS_DOCKER_REPO = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
+        IMAGE_FRONTEND = "notes-frontend"
+        IMAGE_BACKEND = "notes-backend"
+
+        K8S_NAMESPACE = "2401020"
+        DEPLOY_DIR = "k8s-deployment"
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                deleteDir() // clean workspace
-                git branch: 'main', url: 'https://github.com/pranitaB09/cicd_project'
-            }
-        }
-
-        stage('Install Dependencies') {
-            steps {
-                sh 'cd backend && npm install'
-                sh 'cd frontend && npm install'
+                git branch: 'main',
+                    url: 'https://github.com/pranitaB09/cicd_project'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv("${SONARQUBE_SERVER}") {
-                    sh '''
-                        cd backend
-                        sonar-scanner
-                    '''
+                container('scanner') {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                        sh """
+                            sonar-scanner \
+                                -Dsonar.projectKey=${2401020_Restaurant_Reservation} \
+                                -Dsonar.host.url=${SONAR_HOST_URL} \
+                                -Dsonar.login=$SONAR_TOKEN \
+                                -Dsonar.sources=.
+                        """
+                    }
                 }
             }
         }
 
-        stage('Build Backend Docker Image') {
+        stage('Build Docker Images') {
             steps {
-                sh 'docker build -t restaurant-backend ./backend'
+                container('dind') {
+                    sh """
+                        sleep 10
+                        docker build -t ${IMAGE_BACKEND}:latest ./backend
+                        docker build -t ${IMAGE_FRONTEND}:latest ./frontend
+                        docker image ls
+                    """
+                }
             }
         }
 
-        stage('Build Frontend Docker Image') {
+        stage('Tag & Push Images') {
             steps {
-                sh 'docker build -t restaurant-frontend ./frontend'
+                container('dind') {
+                    sh """
+                        docker tag ${IMAGE_BACKEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:v1
+                        docker tag ${IMAGE_FRONTEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:v1
+
+                        docker login ${NEXUS_DOCKER_REPO} -u admin -p Changeme@2025
+
+                        docker push ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:v1
+                        docker push ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:v1
+                    """
+                }
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy to Kubernetes') {
             steps {
-                sh 'chmod +x deploy.sh'
-                sh './deploy.sh'
-            }
-        }
-    }
+                container('kubectl') {
+                    script {
+                        dir(DEPLOY_DIR) {
+                            sh """
+                                kubectl apply -f backend-deployment.yaml -n ${K8S_NAMESPACE}
+                                kubectl apply -f frontend-deployment.yaml -n ${K8S_NAMESPACE}
 
-    post {
-        always {
-            deleteDir() // clean workspace after pipeline
+                                kubectl rollout status deployment/backend -n ${K8S_NAMESPACE}
+                                kubectl rollout status deployment/frontend -n ${K8S_NAMESPACE}
+                            """
+                        }
+                    }
+                }
+            }
         }
     }
 }
