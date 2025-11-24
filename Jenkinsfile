@@ -14,51 +14,64 @@ spec:
       image: sonarsource/sonar-scanner-cli:latest
       command: ['cat']
       tty: true
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "500m"
+        limits:
+          memory: "2Gi"
+          cpu: "1"
 
-    - name: dind
+    - name: docker
       image: docker:dind
       securityContext:
         privileged: true
-      env:
-        - name: DOCKER_TLS_CERTDIR
-          value: ""
+      command: ['cat']
       tty: true
 
     - name: kubectl
       image: bitnami/kubectl:latest
       command: ['cat']
       tty: true
+      securityContext:
+        runAsUser: 0
+        readOnlyRootFilesystem: false
+      volumeMounts:
+        - name: kubeconfig-secret
+          mountPath: /kube/config
+          subPath: kubeconfig
+
+  volumes:
+    - name: kubeconfig-secret
+      secret:
+        secretName: kubeconfig-secret
 """
         }
     }
 
     environment {
-        SONARQUBE_SERVER = 'sonarqube'
         SONAR_HOST_URL = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
-
-        NEXUS_DOCKER_REPO = "nexus.mycompany.com:8083"
-        IMAGE_FRONTEND = "notes-frontend"
-        IMAGE_BACKEND = "notes-backend"
-
-        DEPLOY_SERVER = "ubuntu@10.0.0.15"
-        DEPLOY_PATH = "/home/ubuntu/notes-app"
+        SONAR_PROJECT_KEY = '2401020_Restaurant_Reservation'
+        NEXUS_DOCKER_REPO = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/ajinkya-project"
+        IMAGE_FRONTEND = "restaurant-frontend"
+        IMAGE_BACKEND = "restaurant-backend"
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('Checkout Code') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/pranitaB09/cicd_project'
+                git branch: 'main', url: 'https://github.com/pranitaB09/cicd_project'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
                 container('scanner') {
-                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    withCredentials([string(credentialsId: 'sonar-token-2401199', variable: 'SONAR_TOKEN')]) {
                         sh """
                             sonar-scanner \
-                                -Dsonar.projectKey=${2401020_Restaurant_Reservation} \
+                                -Dsonar.projectKey='${SONAR_PROJECT_KEY}' \
                                 -Dsonar.host.url=${SONAR_HOST_URL} \
                                 -Dsonar.login=$SONAR_TOKEN \
                                 -Dsonar.sources=.
@@ -68,12 +81,21 @@ spec:
             }
         }
 
-        stage('Build Docker Images') {
+        stage('Build Backend Docker Image') {
             steps {
-                container('dind') {
+                container('docker') {
                     sh """
-                        sleep 10
                         docker build -t ${IMAGE_BACKEND}:latest ./backend
+                        docker image ls
+                    """
+                }
+            }
+        }
+
+        stage('Build Frontend Docker Image') {
+            steps {
+                container('docker') {
+                    sh """
                         docker build -t ${IMAGE_FRONTEND}:latest ./frontend
                         docker image ls
                     """
@@ -81,15 +103,20 @@ spec:
             }
         }
 
-        stage('Tag & Push Images') {
+        stage('Login to Nexus Docker Registry') {
             steps {
-                container('dind') {
+                container('docker') {
+                    sh 'docker login -u admin -p Changeme@2025 nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
+                }
+            }
+        }
+
+        stage('Tag & Push Docker Images') {
+            steps {
+                container('docker') {
                     sh """
                         docker tag ${IMAGE_BACKEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:v1
                         docker tag ${IMAGE_FRONTEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:v1
-
-                        docker login ${NEXUS_DOCKER_REPO} -u admin -p Changeme@2025
-
                         docker push ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:v1
                         docker push ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:v1
                     """
@@ -97,19 +124,15 @@ spec:
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Deploy Application') {
             steps {
                 container('kubectl') {
-                    script {
-                        dir(DEPLOY_DIR) {
-                            sh """
-                                kubectl apply -f backend-deployment.yaml -n ${K8S_NAMESPACE}
-                                kubectl apply -f frontend-deployment.yaml -n ${K8S_NAMESPACE}
-
-                                kubectl rollout status deployment/backend -n ${K8S_NAMESPACE}
-                                kubectl rollout status deployment/frontend -n ${K8S_NAMESPACE}
-                            """
-                        }
+                    dir('k8s-deployment') {
+                        sh """
+                            kubectl apply -f deployment.yaml
+                            kubectl rollout status deployment/restaurant-backend -n 2401020
+                            kubectl rollout status deployment/restaurant-frontend -n 2401020
+                        """
                     }
                 }
             }
