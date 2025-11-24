@@ -9,33 +9,15 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                deleteDir() // clean workspace
+                deleteDir()
                 git branch: 'main', url: 'https://github.com/pranitaB09/cicd_project'
-            }
-        }
-
-        stage('Install Sonar Scanner') {
-            steps {
-                sh '''
-                    echo "Installing Sonar Scanner..."
-                    apt-get update
-                    apt-get install -y wget unzip
-
-                    wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-5.0.1.3006-linux.zip
-                    unzip sonar-scanner-*.zip
-                    mv sonar-scanner-*/ /opt/sonar-scanner
-                    export PATH=$PATH:/opt/sonar-scanner/bin
-                '''
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv("${SONARQUBE_SERVER}") {
-                    sh '''
-                        export PATH=$PATH:/opt/sonar-scanner/bin
-                        sonar-scanner
-                    '''
+                    sh 'sonar-scanner'
                 }
             }
         }
@@ -62,7 +44,7 @@ pipeline {
 
     post {
         always {
-            deleteDir() // cleans workspace safely
+            deleteDir()
         }
     }
 }
