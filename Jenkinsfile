@@ -65,21 +65,22 @@ spec:
             }
         }
 
-        stage('SonarQube Analysis') {
-            steps {
-                container('scanner') {
-                    withCredentials([string(credentialsId: 'sonar-token-2401199', variable: 'SONAR_TOKEN')]) {
-                        sh """
-                            sonar-scanner \
-                                -Dsonar.projectKey='${SONAR_PROJECT_KEY}' \
-                                -Dsonar.host.url=${SONAR_HOST_URL} \
-                                -Dsonar.login=$SONAR_TOKEN \
-                                -Dsonar.sources=.
-                        """
-                    }
-                }
+       stage('SonarQube Analysis') {
+    steps {
+        container('scanner') {
+            withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                sh '''
+                    sonar-scanner \
+                        -Dsonar.projectKey=2401020_Restaurant_Reservation \
+                        -Dsonar.host.url=$SONAR_HOST_URL \
+                        -Dsonar.token=$SONAR_TOKEN \
+                        -Dsonar.sources=backend,frontend
+                '''
             }
         }
+    }
+}
+
 
         stage('Build Backend Docker Image') {
             steps {
