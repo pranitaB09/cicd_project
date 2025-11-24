@@ -6,9 +6,8 @@ pipeline {
     }
 
     tools {
-        nodejs "NodeJS"              // NodeJS installation in Jenkins
-        dockerTool "Docker"          // Docker installation in Jenkins
-        sonarScanner "SonarQube Scanner" // SonarQube Scanner installation
+        nodejs "node18"              // NodeJS installation in Jenkins
+        sonarScanner "sonar-scanner" // SonarQube Scanner installation
     }
 
     stages {
