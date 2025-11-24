@@ -1,5 +1,4 @@
 pipeline {
-
     agent any
 
     environment {
@@ -10,10 +9,7 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                // Clean workspace to avoid stale git metadata
-                deleteDir()
-                
-                // Checkout main branch explicitly
+                deleteDir() // clean workspace
                 git branch: 'main', url: 'https://github.com/pranitaB09/cicd_project'
             }
         }
@@ -22,13 +18,11 @@ pipeline {
             steps {
                 sh '''
                     echo "Installing Sonar Scanner..."
-
-                    apk update
-                    apk add wget unzip
+                    apt-get update
+                    apt-get install -y wget unzip
 
                     wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-5.0.1.3006-linux.zip
                     unzip sonar-scanner-*.zip
-
                     mv sonar-scanner-*/ /opt/sonar-scanner
                     export PATH=$PATH:/opt/sonar-scanner/bin
                 '''
@@ -68,8 +62,7 @@ pipeline {
 
     post {
         always {
-            // Clean workspace after build to avoid stale files
-            cleanWs()
+            deleteDir() // cleans workspace safely
         }
     }
 }
