@@ -10,7 +10,11 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                git 'https://github.com/pranitaB09/cicd_project'
+                // Clean workspace to avoid stale git metadata
+                deleteDir()
+                
+                // Checkout main branch explicitly
+                git branch: 'main', url: 'https://github.com/pranitaB09/cicd_project'
             }
         }
 
@@ -26,7 +30,6 @@ pipeline {
                     unzip sonar-scanner-*.zip
 
                     mv sonar-scanner-*/ /opt/sonar-scanner
-
                     export PATH=$PATH:/opt/sonar-scanner/bin
                 '''
             }
@@ -60,6 +63,13 @@ pipeline {
                 sh 'chmod +x deploy.sh'
                 sh './deploy.sh'
             }
+        }
+    }
+
+    post {
+        always {
+            // Clean workspace after build to avoid stale files
+            cleanWs()
         }
     }
 }
