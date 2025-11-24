@@ -33,15 +33,15 @@ spec:
     }
 
     environment {
+        SONARQUBE_SERVER = 'sonarqube'
         SONAR_HOST_URL = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
-        SONAR_PROJECT_KEY = '2401020_Restaurant_Reservation'
 
-        NEXUS_DOCKER_REPO = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
+        NEXUS_DOCKER_REPO = "nexus.mycompany.com:8083"
         IMAGE_FRONTEND = "notes-frontend"
         IMAGE_BACKEND = "notes-backend"
 
-        K8S_NAMESPACE = "2401020"
-        DEPLOY_DIR = "k8s-deployment"
+        DEPLOY_SERVER = "ubuntu@10.0.0.15"
+        DEPLOY_PATH = "/home/ubuntu/notes-app"
     }
 
     stages {
