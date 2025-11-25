@@ -1,4 +1,3 @@
-@@ -1,141 +1,142 @@
 pipeline {
     agent {
         kubernetes {
@@ -66,19 +65,6 @@ spec:
             }
         }
 
-        stage('SonarQube Analysis') {
-            steps {
-                container('scanner') {
-                    withCredentials([string(credentialsId: 'sonar-token-2401199', variable: 'SONAR_TOKEN')]) {
-                        sh """
-                            sonar-scanner \
-                                -Dsonar.projectKey='${SONAR_PROJECT_KEY}' \
-                                -Dsonar.host.url=${SONAR_HOST_URL} \
-                                -Dsonar.login=$SONAR_TOKEN \
-                                -Dsonar.sources=.
-                        """
-                    }
-                }
        stage('SonarQube Analysis') {
     steps {
         container('scanner') {
