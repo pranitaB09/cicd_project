@@ -47,7 +47,7 @@ spec:
     }
 
     environment {
-        SONAR_TOKEN = credentials('sonar-token-id') // Replace with your SonarQube token ID
+        SONAR_TOKEN = credentials('sqp_ef7a0be9b9821ae2b4f29a64fb8b1fc505932a05') // Replace with your SonarQube token ID
         DOCKER_REGISTRY = 'my-nexus-registry.com'  // Replace with your registry URL
         DOCKER_CREDENTIALS = 'nexus-docker'        // Replace with your Jenkins credential ID
     }
