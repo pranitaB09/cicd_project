@@ -144,63 +144,83 @@
 
 pipeline {
 
-podTemplate(
-    yaml: """
     agent {
         kubernetes {
             yaml """
 apiVersion: v1
 kind: Pod
 spec:
-@@ -155,7 +157,6 @@ spec:
+  containers:
+    - name: docker
+      image: docker:dind
+      securityContext:
+        privileged: true
       command:
         - dockerd-entrypoint.sh
       args:
-        - "--host=tcp://0.0.0.0:2375"
         - "--host=unix:///var/run/docker.sock"
       tty: true
       volumeMounts:
-@@ -165,22 +166,77 @@ spec:
+        - name: docker-lib
+          mountPath: /var/lib/docker
+  volumes:
     - name: docker-lib
       emptyDir: {}
 """
-){
-    node(POD_LABEL) {
         }
     }
+    agent any
 
     environment {
         // Change as needed
         IMAGE_NAME = "restaurant-backend"
         DOCKER_USER = "your-dockerhub-username"
+        // ----- SONAR -----
+        SONARQUBE_ENV = 'SonarQubeServer'
+        SONAR_PROJECT_KEY = '2401020_Restaurant_Reservation'
+        SONAR_HOST_URL = 'http://sonarqube.imcc.com'
+
+        // ----- DOCKER -----
+        IMAGE_BACKEND = "restaurant-backend"
+        IMAGE_FRONTEND = "restaurant-frontend"
+
+        // ----- NEXUS -----
+        NEXUS_REPO = "nexus.imcc.com:8085"
+        
+        // ----- DEPLOY -----
+        DEPLOY_SERVER = "ubuntu@10.0.0.15"
+        DEPLOY_PATH = "/home/ubuntu/restaurant_app"
     }
 
     stages {
 
         stage("Checkout") {
-            checkout scm
+        stage('Checkout Source Code') {
             steps {
                 checkout scm
+                git branch: 'main',
+                    url: 'https://github.com/pranitaB09/cicd_project'
             }
         }
 
-        stage("Build Docker Image") {
-            container('docker') {
-                withEnv(["DOCKER_HOST=tcp://localhost:2375"]) {
-                    sh """
-                        docker info
-                        docker build -t restaurant-backend:latest ./backend
-                    """
         stage("Build Image") {
+        stage('SonarQube Analysis') {
             steps {
                 container('docker') {
                     withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
+                withSonarQubeEnv(SONARQUBE_ENV) {
+                    withCredentials([string(credentialsId: '2401020_sonar', variable: 'SONAR_TOKEN')]) {
                         sh """
                             echo "=== Checking Docker Connection ==="
                             docker info
 
                             echo "=== Building Docker Image ==="
                             docker build -t ${IMAGE_NAME}:latest ./backend
+                            sonar-scanner \
+                                -Dsonar.projectKey=$SONAR_PROJECT_KEY \
+                                -Dsonar.sources=. \
+                                -Dsonar.host.url=$SONAR_HOST_URL \
+                                -Dsonar.login=$SONAR_TOKEN
                         """
                     }
                 }
@@ -208,6 +228,7 @@ spec:
         }
 
         stage("DockerHub Login") {
+        stage("Quality Gate") {
             steps {
                 container('docker') {
                     withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
@@ -221,30 +242,96 @@ spec:
                             """
                         }
                     }
+                timeout(time: 3, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
 
         stage("Tag & Push Image") {
+        stage('Build Backend Docker Image') {
             steps {
                 container('docker') {
                     withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
                         sh """
                             echo "=== Tagging Image ==="
                             docker tag ${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:latest
+                sh """
+                    docker build -t $IMAGE_BACKEND:latest ./backend
+                """
+            }
+        }
 
                             echo "=== Pushing Image to DockerHub ==="
                             docker push ${DOCKER_USER}/${IMAGE_NAME}:latest
                         """
                     }
+        stage('Build Frontend Docker Image') {
+            steps {
+                sh """
+                    docker build \
+                        --build-arg REACT_APP_BACKEND_URL=http://backend:4000 \
+                        -t $IMAGE_FRONTEND:latest ./frontend
+                """
+            }
+        }
+
+        stage('Login to Nexus Registry') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'nexus-creds', 
+                    usernameVariable: 'NEXUS_USER', 
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh """
+                        docker login $NEXUS_REPO -u $NEXUS_USER -p $NEXUS_PASS
+                    """
                 }
             }
         }
 
         stage("Deploy (Optional)") {
+        stage('Tag & Push Images to Nexus') {
+            steps {
+                sh """
+                    docker tag $IMAGE_BACKEND:latest $NEXUS_REPO/$IMAGE_BACKEND:latest
+                    docker tag $IMAGE_FRONTEND:latest $NEXUS_REPO/$IMAGE_FRONTEND:latest
+
+                    docker push $NEXUS_REPO/$IMAGE_BACKEND:latest
+                    docker push $NEXUS_REPO/$IMAGE_FRONTEND:latest
+                """
+            }
+        }
+
+        stage('Deploy to Remote Server') {
             steps {
                 echo "Add deployment steps here (Kubernetes apply / SSH deploy / etc.)"
+                sshagent(['deploy-ssh']) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER '
+                            mkdir -p $DEPLOY_PATH &&
+                            cd $DEPLOY_PATH &&
+                            docker pull $NEXUS_REPO/$IMAGE_BACKEND:latest &&
+                            docker pull $NEXUS_REPO/$IMAGE_FRONTEND:latest &&
+                            docker compose down || true &&
+                            docker compose up -d
+                        '
+                    """
+                }
             }
+        }
+    }
+
+    post {
+        always {
+            echo "Cleaning Docker..."
+            sh "docker system prune -f || true"
+        }
+        success {
+            echo "🎉 CI/CD pipeline completed successfully!"
+        }
+        failure {
+            echo "❌ Pipeline failed. Check logs."
         }
     }
 }
