@@ -1,60 +1,64 @@
 pipeline {
     agent {
         kubernetes {
+            label '2401020-restaurant-reservation-multi'
+            defaultContainer 'jnlp'
             yaml """
 apiVersion: v1
 kind: Pod
+metadata:
+  labels:
+    jenkins/label: 2401020-restaurant-reservation-multi
 spec:
   containers:
-    - name: jnlp
-      image: jenkins/inbound-agent
-      args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
-
-    - name: scanner
-      image: sonarsource/sonar-scanner-cli:latest
-      command: ['cat']
-      tty: true
-      resources:
-        requests:
-          memory: "1Gi"
-          cpu: "500m"
-        limits:
-          memory: "2Gi"
-          cpu: "1"
-
-    - name: docker
-      image: docker:dind
-      securityContext:
-        privileged: true
-      command: ['cat']
-      tty: true
-
-    - name: kubectl
-      image: bitnami/kubectl:latest
-      command: ['cat']
-      tty: true
-      securityContext:
-        runAsUser: 0
-        readOnlyRootFilesystem: false
-      volumeMounts:
-        - name: kubeconfig-secret
-          mountPath: /kube/config
-          subPath: kubeconfig
-
+  - name: jnlp
+    image: jenkins/inbound-agent:latest
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+    volumeMounts:
+      - mountPath: /home/jenkins/agent
+        name: workspace-volume
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:latest
+    command:
+      - cat
+    tty: true
+    volumeMounts:
+      - mountPath: /workspace
+        name: workspace-volume
+      - mountPath: /kaniko/.docker
+        name: kaniko-secret
+  - name: scanner
+    image: sonarsource/sonar-scanner-cli:latest
+    command:
+      - cat
+    tty: true
+    volumeMounts:
+      - mountPath: /home/jenkins/agent
+        name: workspace-volume
+  - name: kubectl
+    image: bitnami/kubectl:latest
+    command:
+      - cat
+    tty: true
+    volumeMounts:
+      - mountPath: /home/jenkins/agent
+        name: workspace-volume
   volumes:
-    - name: kubeconfig-secret
+    - name: workspace-volume
+      emptyDir: {}
+    - name: kaniko-secret
       secret:
-        secretName: kubeconfig-secret
+        secretName: kaniko-secret
 """
         }
     }
 
     environment {
-        SONAR_HOST_URL = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
-        SONAR_PROJECT_KEY = '2401020_Restaurant_Reservation'
-        NEXUS_DOCKER_REPO = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/ajinkya-project"
-        IMAGE_FRONTEND = "restaurant-frontend"
-        IMAGE_BACKEND = "restaurant-backend"
+        DOCKER_REGISTRY = "my-nexus-registry.com"   // Replace with your registry
+        DOCKER_CREDENTIALS_ID = "nexus-docker"      // Jenkins credentials ID
     }
 
     stages {
@@ -65,62 +69,50 @@ spec:
             }
         }
 
-       stage('SonarQube Analysis') {
-    steps {
-        container('scanner') {
-            withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                sh '''
-                    sonar-scanner \
-                        -Dsonar.projectKey=2401020_Restaurant_Reservation \
-                        -Dsonar.host.url=$SONAR_HOST_URL \
-                        -Dsonar.token=$SONAR_TOKEN \
-                        -Dsonar.sources=backend,frontend
-                '''
-            }
-        }
-    }
-}
-
-
-        stage('Build Backend Docker Image') {
+        stage('SonarQube Analysis') {
             steps {
-                container('docker') {
-                    sh """
-                        docker build -t ${IMAGE_BACKEND}:latest ./backend
-                        docker image ls
-                    """
+                container('scanner') {
+                    withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
+                        sh '''
+                        sonar-scanner \
+                          -Dsonar.projectKey=2401020_Restaurant_Reservation \
+                          -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000 \
+                          -Dsonar.token=$SONAR_TOKEN \
+                          -Dsonar.sources=backend,frontend
+                        '''
+                    }
                 }
             }
         }
 
-        stage('Build Frontend Docker Image') {
+        stage('Build & Push Backend Docker Image') {
             steps {
-                container('docker') {
-                    sh """
-                        docker build -t ${IMAGE_FRONTEND}:latest ./frontend
-                        docker image ls
-                    """
+                container('kaniko') {
+                    sh '''
+                    /kaniko/executor \
+                      --context /workspace/backend \
+                      --dockerfile /workspace/backend/Dockerfile \
+                      --destination $DOCKER_REGISTRY/restaurant-backend:latest \
+                      --verbosity info \
+                      --insecure \
+                      --skip-tls-verify
+                    '''
                 }
             }
         }
 
-        stage('Login to Nexus Docker Registry') {
+        stage('Build & Push Frontend Docker Image') {
             steps {
-                container('docker') {
-                    sh 'docker login -u admin -p Changeme@2025 nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
-                }
-            }
-        }
-
-        stage('Tag & Push Docker Images') {
-            steps {
-                container('docker') {
-                    sh """
-                        docker tag ${IMAGE_BACKEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:v1
-                        docker tag ${IMAGE_FRONTEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:v1
-                        docker push ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:v1
-                        docker push ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:v1
-                    """
+                container('kaniko') {
+                    sh '''
+                    /kaniko/executor \
+                      --context /workspace/frontend \
+                      --dockerfile /workspace/frontend/Dockerfile \
+                      --destination $DOCKER_REGISTRY/restaurant-frontend:latest \
+                      --verbosity info \
+                      --insecure \
+                      --skip-tls-verify
+                    '''
                 }
             }
         }
@@ -128,15 +120,10 @@ spec:
         stage('Deploy Application') {
             steps {
                 container('kubectl') {
-                    dir('k8s-deployment') {
-                        sh """
-                            kubectl apply -f deployment.yaml
-                            kubectl rollout status deployment/restaurant-backend -n 2401020
-                            kubectl rollout status deployment/restaurant-frontend -n 2401020
-                        """
-                    }
+                    sh 'kubectl apply -f k8s/'
                 }
             }
         }
-    }
+
+    } // stages
 }
