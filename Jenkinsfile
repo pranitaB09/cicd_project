@@ -140,7 +140,6 @@
 //         }
 //     }
 // }
-
 pipeline {
   agent {
     kubernetes {
@@ -159,11 +158,11 @@ spec:
       tty: true
       resources:
         requests:
-          memory: "1Gi"
-          cpu: "500m"
+          memory: "256Mi"
+          cpu: "100m"
         limits:
-          memory: "2Gi"
-          cpu: "1"
+          memory: "512Mi"
+          cpu: "300m"
 
     - name: docker
       image: docker:24.0-dind
@@ -180,11 +179,11 @@ spec:
           mountPath: /home/jenkins/agent
       resources:
         requests:
-          memory: "2Gi"
-          cpu: "1"
+          memory: "512Mi"
+          cpu: "200m"
         limits:
-          memory: "4Gi"
-          cpu: "2"
+          memory: "1Gi"
+          cpu: "500m"
 
   volumes:
     - name: docker-lib
@@ -196,24 +195,19 @@ spec:
   }
 
   environment {
-    // Sonar
-    SONAR_SERVER_NAME = "SonarQubeServer"          // must match Jenkins Sonar config name
+    SONAR_SERVER_NAME = "SonarQubeServer"
     SONAR_HOST_URL     = "http://sonarqube.imcc.com/"
 
-    // Nexus (Docker registry)
-    NEXUS_REGISTRY     = "nexus.imcc.com:8083"     // update if different
-    NEXUS_CREDENTIALS  = "nexus-creds"            // Jenkins credentials ID for Nexus (username/password)
+    NEXUS_REGISTRY     = "nexus.imcc.com:8083"
+    NEXUS_CREDENTIALS  = "nexus-creds"
 
-    // Images
     IMAGE_BACKEND      = "2401020_restaurant_backend"
     IMAGE_FRONTEND     = "2401020_restaurant_frontend"
 
-    // Deployment server (SSH)
-    DEPLOY_SSH_CREDENTIAL = "deploy-ssh"          // Jenkins SSH credentials ID
-    DEPLOY_USER_HOST       = "ubuntu@10.0.0.15"  // update to your server user@ip
+    DEPLOY_SSH_CREDENTIAL = "deploy-ssh"
+    DEPLOY_USER_HOST       = "ubuntu@10.0.0.15"
     DEPLOY_PATH            = "/home/ubuntu/restaurant_app"
 
-    // Sonar token credential id
     SONAR_TOKEN_CRED = "2401020_sonar"
   }
 
@@ -234,7 +228,6 @@ spec:
           withSonarQubeEnv("${SONAR_SERVER_NAME}") {
             withCredentials([string(credentialsId: "${SONAR_TOKEN_CRED}", variable: 'SONAR_TOKEN')]) {
               sh '''
-                # run sonar scanner inside sonar container
                 sonar-scanner \
                   -Dsonar.projectKey=2401020_Restaurant_Reservation \
                   -Dsonar.projectName=2401020_Restaurant_Reservation \
@@ -250,54 +243,36 @@ spec:
 
     stage('Quality Gate') {
       steps {
-        // Wait for SonarQube quality gate result. Abort pipeline if not OK.
         timeout(time: 5, unit: 'MINUTES') {
           waitForQualityGate abortPipeline: true
         }
       }
     }
 
-    stage('Build Docker Images (backend & frontend)') {
+    stage('Build Docker Images') {
       steps {
         container('docker') {
-          // let dockerd fully start
           sh 'echo "Waiting for dockerd..." && sleep 10 || true'
-
-          // ensure docker CLI uses the socket inside the container
           withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
             sh """
-              echo "=== Building backend image ==="
-              ls -la ./backend || true
               docker build -t ${IMAGE_BACKEND}:latest ./backend
-
-              echo "=== Building frontend image ==="
-              ls -la ./frontend || true
               docker build --build-arg REACT_APP_BACKEND_URL=http://backend:4000 -t ${IMAGE_FRONTEND}:latest ./frontend
-
-              docker images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}'
             """
           }
         }
       }
     }
 
-    stage('Login to Nexus & Push Images') {
+    stage('Push to Nexus') {
       steps {
         container('docker') {
           withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
             withCredentials([usernamePassword(credentialsId: "${NEXUS_CREDENTIALS}", usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
               sh '''
-                echo "Logging in to Nexus Docker registry..."
                 echo "$NEXUS_PASS" | docker login ${NEXUS_REGISTRY} -u "$NEXUS_USER" --password-stdin
-
-                echo "Tagging images for Nexus..."
                 docker tag ${IMAGE_BACKEND}:latest ${NEXUS_REGISTRY}/${IMAGE_BACKEND}:latest
                 docker tag ${IMAGE_FRONTEND}:latest ${NEXUS_REGISTRY}/${IMAGE_FRONTEND}:latest
-
-                echo "Pushing backend..."
                 docker push ${NEXUS_REGISTRY}/${IMAGE_BACKEND}:latest
-
-                echo "Pushing frontend..."
                 docker push ${NEXUS_REGISTRY}/${IMAGE_FRONTEND}:latest
               '''
             }
@@ -306,40 +281,21 @@ spec:
       }
     }
 
-    stage('Deploy to Remote Server') {
+    stage('Deploy to Server') {
       steps {
-        // Uses SSH private key credentials stored in Jenkins (id = DEPLOY_SSH_CREDENTIAL)
         sshagent([ "${DEPLOY_SSH_CREDENTIAL}" ]) {
           sh """
             ssh -o StrictHostKeyChecking=no ${DEPLOY_USER_HOST} '
-              set -e
-              mkdir -p ${DEPLOY_PATH}
-              cd ${DEPLOY_PATH} || exit 1
-
-              # Ensure the remote docker daemon trusts your Nexus registry if it's insecure (optional)
-              # (This step is environment-specific and may require sudo)
-
-              # Pull latest images
               docker pull ${NEXUS_REGISTRY}/${IMAGE_BACKEND}:latest
               docker pull ${NEXUS_REGISTRY}/${IMAGE_FRONTEND}:latest
 
-              # If you have a docker-compose.yml at DEPLOY_PATH, bring the app down and up
-              if [ -f docker-compose.yml ]; then
-                docker compose pull || true
-                docker compose down || true
-                docker compose up -d --remove-orphans
-              else
-                # Fallback: run backend and frontend as standalone containers
-                docker stop restaurant-backend || true
-                docker rm restaurant-backend || true
-                docker run -d --name restaurant-backend -p 4000:4000 ${NEXUS_REGISTRY}/${IMAGE_BACKEND}:latest
+              docker stop restaurant-backend || true
+              docker rm restaurant-backend || true
+              docker run -d --name restaurant-backend -p 4000:4000 ${NEXUS_REGISTRY}/${IMAGE_BACKEND}:latest
 
-                docker stop restaurant-frontend || true
-                docker rm restaurant-frontend || true
-                docker run -d --name restaurant-frontend -p 80:3000 ${NEXUS_REGISTRY}/${IMAGE_FRONTEND}:latest
-              fi
-
-              echo "Deployment finished on remote host."
+              docker stop restaurant-frontend || true
+              docker rm restaurant-frontend || true
+              docker run -d --name restaurant-frontend -p 80:3000 ${NEXUS_REGISTRY}/${IMAGE_FRONTEND}:latest
             '
           """
         }
@@ -349,18 +305,11 @@ spec:
 
   post {
     always {
-      echo "Cleaning up docker system on the agent..."
       container('docker') {
         withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
           sh 'docker system prune -af || true'
         }
       }
-    }
-    success {
-      echo "✅ Pipeline succeeded!"
-    }
-    failure {
-      echo "❌ Pipeline failed. Check the logs above."
     }
   }
 }
