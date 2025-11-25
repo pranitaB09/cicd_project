@@ -19,7 +19,7 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                     sh """
-                        sonar-scanner \
+                        sonarqube \
                             -Dsonar.projectKey=2401020_Restaurant_Reservation \
                             -Dsonar.host.url=$SONAR_HOST_URL \
                             -Dsonar.token=$SONAR_TOKEN \
