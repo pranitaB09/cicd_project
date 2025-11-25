@@ -141,9 +141,11 @@
 //     }
 // }
 
+pipeline {
 
-podTemplate(
-    yaml: """
+    agent {
+        kubernetes {
+            yaml """
 apiVersion: v1
 kind: Pod
 spec:
@@ -155,7 +157,6 @@ spec:
       command:
         - dockerd-entrypoint.sh
       args:
-        - "--host=tcp://0.0.0.0:2375"
         - "--host=unix:///var/run/docker.sock"
       tty: true
       volumeMounts:
@@ -165,21 +166,76 @@ spec:
     - name: docker-lib
       emptyDir: {}
 """
-){
-    node(POD_LABEL) {
+        }
+    }
+
+    environment {
+        // Change as needed
+        IMAGE_NAME = "restaurant-backend"
+        DOCKER_USER = "your-dockerhub-username"
+    }
+
+    stages {
 
         stage("Checkout") {
-            checkout scm
+            steps {
+                checkout scm
+            }
         }
 
-        stage("Build Docker Image") {
-            container('docker') {
-                withEnv(["DOCKER_HOST=tcp://localhost:2375"]) {
-                    sh """
-                        docker info
-                        docker build -t restaurant-backend:latest ./backend
-                    """
+        stage("Build Image") {
+            steps {
+                container('docker') {
+                    withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
+                        sh """
+                            echo "=== Checking Docker Connection ==="
+                            docker info
+
+                            echo "=== Building Docker Image ==="
+                            docker build -t ${IMAGE_NAME}:latest ./backend
+                        """
+                    }
                 }
+            }
+        }
+
+        stage("DockerHub Login") {
+            steps {
+                container('docker') {
+                    withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
+                        withCredentials([usernamePassword(
+                            credentialsId: 'dockerhub-creds',
+                            usernameVariable: 'USER',
+                            passwordVariable: 'PASS'
+                        )]) {
+                            sh """
+                                echo "$PASS" | docker login -u "$USER" --password-stdin
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("Tag & Push Image") {
+            steps {
+                container('docker') {
+                    withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
+                        sh """
+                            echo "=== Tagging Image ==="
+                            docker tag ${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:latest
+
+                            echo "=== Pushing Image to DockerHub ==="
+                            docker push ${DOCKER_USER}/${IMAGE_NAME}:latest
+                        """
+                    }
+                }
+            }
+        }
+
+        stage("Deploy (Optional)") {
+            steps {
+                echo "Add deployment steps here (Kubernetes apply / SSH deploy / etc.)"
             }
         }
     }
