@@ -141,9 +141,7 @@
 //     }
 // }
 
-
 pipeline {
-
     agent {
         kubernetes {
             yaml """
@@ -151,169 +149,126 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
+    - name: jnlp
+      image: jenkins/inbound-agent
+      args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
+
     - name: docker
-      image: docker:dind
+      image: docker:24.0-dind
       securityContext:
         privileged: true
-      command:
-        - dockerd-entrypoint.sh
-      args:
-        - "--host=unix:///var/run/docker.sock"
+      command: ['dockerd-entrypoint.sh']
       tty: true
-      volumeMounts:
-        - name: docker-lib
-          mountPath: /var/lib/docker
-  volumes:
-    - name: docker-lib
-      emptyDir: {}
+      resources:
+        requests:
+          memory: "2Gi"
+          cpu: "1"
+        limits:
+          memory: "4Gi"
+          cpu: "2"
+
+    - name: sonar-scanner
+      image: sonarsource/sonar-scanner-cli:latest
+      command: ['cat']
+      tty: true
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "500m"
+        limits:
+          memory: "2Gi"
+          cpu: "1"
 """
         }
     }
-    agent any
 
     environment {
-        // Change as needed
-        IMAGE_NAME = "restaurant-backend"
-        DOCKER_USER = "your-dockerhub-username"
-        // ----- SONAR -----
-        SONARQUBE_ENV = 'SonarQubeServer'
-        SONAR_PROJECT_KEY = '2401020_Restaurant_Reservation'
         SONAR_HOST_URL = 'http://sonarqube.imcc.com'
-
-        // ----- DOCKER -----
-        IMAGE_BACKEND = "restaurant-backend"
-        IMAGE_FRONTEND = "restaurant-frontend"
-
-        // ----- NEXUS -----
-        NEXUS_REPO = "nexus.imcc.com:8085"
-        
-        // ----- DEPLOY -----
+        NEXUS_DOCKER_REPO = "nexus.mycompany.com:8083"
+        IMAGE_FRONTEND = "notes-frontend"
+        IMAGE_BACKEND = "notes-backend"
         DEPLOY_SERVER = "ubuntu@10.0.0.15"
-        DEPLOY_PATH = "/home/ubuntu/restaurant_app"
+        DEPLOY_PATH = "/home/ubuntu/restaurant_reservation"
     }
 
     stages {
 
-        stage("Checkout") {
-        stage('Checkout Source Code') {
+        stage('Checkout') {
             steps {
-                checkout scm
                 git branch: 'main',
                     url: 'https://github.com/pranitaB09/cicd_project'
             }
         }
 
-        stage("Build Image") {
         stage('SonarQube Analysis') {
             steps {
-                container('docker') {
-                    withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
-                withSonarQubeEnv(SONARQUBE_ENV) {
-                    withCredentials([string(credentialsId: '2401020_sonar', variable: 'SONAR_TOKEN')]) {
-                        sh """
-                            echo "=== Checking Docker Connection ==="
-                            docker info
-
-                            echo "=== Building Docker Image ==="
-                            docker build -t ${IMAGE_NAME}:latest ./backend
-                            sonar-scanner \
-                                -Dsonar.projectKey=$SONAR_PROJECT_KEY \
+                container('sonar-scanner') {
+                    withSonarQubeEnv('SonarQubeServer') {
+                        withCredentials([string(credentialsId: '2401020_sonar', variable: 'SONAR_AUTH_TOKEN')]) {
+                            sh '''
+                                sonar-scanner \
+                                -Dsonar.projectKey=2401020_Restaurant_Reservation \
+                                -Dsonar.projectName=2401020_Restaurant_Reservation \
                                 -Dsonar.sources=. \
                                 -Dsonar.host.url=$SONAR_HOST_URL \
-                                -Dsonar.login=$SONAR_TOKEN
-                        """
+                                -Dsonar.login=$SONAR_AUTH_TOKEN
+                            '''
+                        }
                     }
                 }
             }
         }
 
-        stage("DockerHub Login") {
-        stage("Quality Gate") {
+
+        stage('Quality Gate') {
             steps {
-                container('docker') {
-                    withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
-                        withCredentials([usernamePassword(
-                            credentialsId: 'dockerhub-creds',
-                            usernameVariable: 'USER',
-                            passwordVariable: 'PASS'
-                        )]) {
-                            sh """
-                                echo "$PASS" | docker login -u "$USER" --password-stdin
-                            """
-                        }
-                    }
-                timeout(time: 3, unit: 'MINUTES') {
+                timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        stage("Tag & Push Image") {
-        stage('Build Backend Docker Image') {
+        stage('Build Docker Images') {
             steps {
                 container('docker') {
-                    withEnv(["DOCKER_HOST=unix:///var/run/docker.sock"]) {
-                        sh """
-                            echo "=== Tagging Image ==="
-                            docker tag ${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:latest
-                sh """
-                    docker build -t $IMAGE_BACKEND:latest ./backend
-                """
-            }
-        }
-
-                            echo "=== Pushing Image to DockerHub ==="
-                            docker push ${DOCKER_USER}/${IMAGE_NAME}:latest
-                        """
-                    }
-        stage('Build Frontend Docker Image') {
-            steps {
-                sh """
-                    docker build \
-                        --build-arg REACT_APP_BACKEND_URL=http://backend:4000 \
-                        -t $IMAGE_FRONTEND:latest ./frontend
-                """
-            }
-        }
-
-        stage('Login to Nexus Registry') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'nexus-creds', 
-                    usernameVariable: 'NEXUS_USER', 
-                    passwordVariable: 'NEXUS_PASS'
-                )]) {
                     sh """
-                        docker login $NEXUS_REPO -u $NEXUS_USER -p $NEXUS_PASS
+                        sleep 15
+
+                        docker build -t ${IMAGE_BACKEND}:latest ./notes-backend
+
+                        docker build --build-arg REACT_APP_BACKEND_URL=http://backend:4000 \
+                            -t ${IMAGE_FRONTEND}:latest ./notes-frontend
                     """
                 }
             }
         }
 
-        stage("Deploy (Optional)") {
         stage('Tag & Push Images to Nexus') {
             steps {
-                sh """
-                    docker tag $IMAGE_BACKEND:latest $NEXUS_REPO/$IMAGE_BACKEND:latest
-                    docker tag $IMAGE_FRONTEND:latest $NEXUS_REPO/$IMAGE_FRONTEND:latest
+                container('docker') {
+                    withCredentials([usernamePassword(credentialsId: 'nexus-creds', usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
+                        sh """
+                            docker login ${NEXUS_DOCKER_REPO} -u $NEXUS_USER -p $NEXUS_PASS
 
-                    docker push $NEXUS_REPO/$IMAGE_BACKEND:latest
-                    docker push $NEXUS_REPO/$IMAGE_FRONTEND:latest
-                """
+                            docker tag ${IMAGE_BACKEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:latest
+                            docker tag ${IMAGE_FRONTEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:latest
+
+                            docker push ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:latest
+                            docker push ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:latest
+                        """
+                    }
+                }
             }
         }
 
-        stage('Deploy to Remote Server') {
+        stage('Deploy to Server') {
             steps {
-                echo "Add deployment steps here (Kubernetes apply / SSH deploy / etc.)"
-                sshagent(['deploy-ssh']) {
+                sshagent(['DEPLOY_SERVER_SSH']) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER '
-                            mkdir -p $DEPLOY_PATH &&
-                            cd $DEPLOY_PATH &&
-                            docker pull $NEXUS_REPO/$IMAGE_BACKEND:latest &&
-                            docker pull $NEXUS_REPO/$IMAGE_FRONTEND:latest &&
-                            docker compose down || true &&
+                        ssh -o StrictHostKeyChecking=no ${DEPLOY_SERVER} '
+                            cd ${DEPLOY_PATH} &&
+                            docker compose pull &&
+                            docker compose down &&
                             docker compose up -d
                         '
                     """
@@ -324,14 +279,16 @@ spec:
 
     post {
         always {
-            echo "Cleaning Docker..."
-            sh "docker system prune -f || true"
+            echo 'Cleaning up dangling Docker images...'
+            container('docker') {
+                sh 'docker system prune -f || true'
+            }
         }
         success {
-            echo "🎉 CI/CD pipeline completed successfully!"
+            echo 'CI/CD pipeline completed successfully!'
         }
         failure {
-            echo "❌ Pipeline failed. Check logs."
+            echo 'Pipeline failed. Please check the logs!'
         }
     }
 }
