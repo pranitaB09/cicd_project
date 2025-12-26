@@ -165,7 +165,7 @@ spec:
                                 kubectl apply -f restaurant-deployment.yaml
 
                                 echo "⏳ Checking rollout status..."
-                                kubectl rollout status deployment/restaurant-frontend-deployment -n ${NAMESPACE}
+                                kubectl rollout status deployment/restaurant-deployment -n ${NAMESPACE}
 
                                 echo "✔ Restaurant Reservation App successfully deployed!"
                             """
