@@ -58,7 +58,7 @@ spec:
 
         PROJECT_KEY   = "2401020_Restaurant_project"
         PROJECT_NAME  = "2401020_Restaurant_project"
-        SONAR_URL     = "http://sonarqube.sonarqube.svc.cluster.local:9000"
+        SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "frontend,backend"
 
         NEXUS_REGISTRY = "nexus.nexus.svc.cluster.local:5000"
