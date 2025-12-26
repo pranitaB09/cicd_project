@@ -1,143 +1,178 @@
 pipeline {
+
     agent {
         kubernetes {
-            yaml """
+            yaml '''
 apiVersion: v1
 kind: Pod
 spec:
   containers:
-    - name: jnlp
-      image: jenkins/inbound-agent
-      args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
 
-    - name: scanner
-      image: sonarsource/sonar-scanner-cli:latest
-      command: ['cat']
-      tty: true
-      resources:
-        requests:
-          memory: "1Gi"
-          cpu: "500m"
-        limits:
-          memory: "2Gi"
-          cpu: "1"
+  - name: sonar-scanner
+    image: sonarsource/sonar-scanner-cli
+    command: ["cat"]
+    tty: true
 
-    - name: docker
-      image: docker:dind
-      securityContext:
-        privileged: true
-      command: ['cat']
-      tty: true
+  - name: kubectl
+    image: bitnami/kubectl:latest
+    command: ["cat"]
+    tty: true
+    securityContext:
+      runAsUser: 0
+      readOnlyRootFilesystem: false
+    env:
+    - name: KUBECONFIG
+      value: /kube/config
+    volumeMounts:
+    - name: kubeconfig-secret
+      mountPath: /kube/config
+      subPath: kubeconfig
 
-    - name: kubectl
-      image: bitnami/kubectl:latest
-      command: ['cat']
-      tty: true
-      securityContext:
-        runAsUser: 0
-        readOnlyRootFilesystem: false
-      volumeMounts:
-        - name: kubeconfig-secret
-          mountPath: /kube/config
-          subPath: kubeconfig
+  - name: dind
+    image: docker:24-dind
+    securityContext:
+      privileged: true
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
+    command:
+    - dockerd-entrypoint.sh
+    args:
+    - --host=unix:///var/run/docker.sock
+    - --storage-driver=overlay2
+    volumeMounts:
+    - name: docker-storage
+      mountPath: /var/lib/docker
+    - name: docker-config
+      mountPath: /etc/docker/daemon.json
+      subPath: daemon.json
 
   volumes:
-    - name: kubeconfig-secret
-      secret:
-        secretName: kubeconfig-secret
-"""
+  - name: docker-storage
+    emptyDir: {}
+  - name: docker-config
+    configMap:
+      name: docker-daemon-config
+  - name: kubeconfig-secret
+    secret:
+      secretName: kubeconfig-secret
+'''
         }
     }
 
     environment {
-        SONAR_HOST_URL = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
-        SONAR_PROJECT_KEY = '2401020_Restaurant_Reservation'
-        NEXUS_DOCKER_REPO = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/ajinkya-project"
-        IMAGE_FRONTEND = "restaurant-frontend"
-        IMAGE_BACKEND = "restaurant-backend"
+
+        // ---------- SONAR CONFIG ----------
+        PROJECT_KEY   = "2401020_Restaurant_project"
+        PROJECT_NAME  = "2401020_Restaurant_project"
+        SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
+        SONAR_SOURCES = "backend,frontend"
+
+        // ---------- DOCKER / NEXUS CONFIG ----------
+        IMAGE_LOCAL   = "restaurant-app:latest"
+        REGISTRY      = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
+        REGISTRY_PATH = "2401020/restaurant-reservation"
+        IMAGE_TAGGED  = "${REGISTRY}/${REGISTRY_PATH}:latest"
+
+        // ---------- K8S CONFIG ----------
+        NAMESPACE     = "2401020"
     }
 
     stages {
 
         stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/pranitaB09/cicd_project'
+                git url: 'https://github.com/pranitaB09/cicd_project.git',
+                    branch: 'main'
             }
         }
 
-       stage('SonarQube Analysis') {
-    steps {
-        container('SonarQubeServer') {
-            withCredentials([string(credentialsId: '2401020_sonar', variable: 'SONAR_TOKEN')]) {
-                sh '''
-                    sonar-scanner \
-                        -Dsonar.projectKey=2401020_Restaurant_Reservation \
-                        -Dsonar.host.url=$SONAR_HOST_URL \
-                        -Dsonar.token=$SONAR_TOKEN \
-                        -Dsonar.sources=backend,frontend
-                '''
-            }
-        }
-    }
-}
-
-
-        stage('Build Backend Docker Image') {
+        stage('Build Docker Image') {
             steps {
-                container('docker') {
-                    sh """
-                        docker build -t ${IMAGE_BACKEND}:latest ./backend
+                container('dind') {
+                    sh '''
+                        echo "⏳ Waiting for Docker daemon..."
+                        until docker info > /dev/null 2>&1; do
+                          sleep 3
+                        done
+
+                        echo "🐳 Building Docker Image..."
+                        docker build -t ${IMAGE_LOCAL} .
                         docker image ls
-                    """
+                    '''
                 }
             }
         }
 
-        stage('Build Frontend Docker Image') {
+        stage('SonarQube Analysis') {
             steps {
-                container('docker') {
-                    sh """
-                        docker build -t ${IMAGE_FRONTEND}:latest ./frontend
-                        docker image ls
-                    """
+                container('sonar-scanner') {
+                    withCredentials([
+                        string(
+                            credentialsId: 'sonar-token-2401020',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+                        sh '''
+                            echo "🔍 Running SonarQube Analysis..."
+
+                            sonar-scanner \
+                              -Dsonar.projectKey=${PROJECT_KEY} \
+                              -Dsonar.projectName=${PROJECT_NAME} \
+                              -Dsonar.sources=${SONAR_SOURCES} \
+                              -Dsonar.host.url=${SONAR_URL} \
+                              -Dsonar.token=${SONAR_TOKEN} \
+                              -Dsonar.sourceEncoding=UTF-8
+                        '''
+                    }
                 }
             }
         }
 
-        stage('Login to Nexus Docker Registry') {
+        stage('Login to Docker Registry (Nexus)') {
             steps {
-                container('docker') {
-                    sh 'docker login -u admin -p Changeme@2025 nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
+                container('dind') {
+                    sh '''
+                        until docker info > /dev/null 2>&1; do
+                          sleep 3
+                        done
+
+                        docker --version
+                        docker login ${REGISTRY} -u admin -p Changeme@2025
+                    '''
                 }
             }
         }
 
-        stage('Tag & Push Docker Images') {
+        stage('Tag & Push Image to Nexus') {
             steps {
-                container('docker') {
-                    sh """
-                        docker tag ${IMAGE_BACKEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:v1
-                        docker tag ${IMAGE_FRONTEND}:latest ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:v1
-                        docker push ${NEXUS_DOCKER_REPO}/${IMAGE_BACKEND}:v1
-                        docker push ${NEXUS_DOCKER_REPO}/${IMAGE_FRONTEND}:v1
-                    """
+                container('dind') {
+                    sh '''
+                        echo "📤 Tagging & Pushing Image..."
+                        docker tag ${IMAGE_LOCAL} ${IMAGE_TAGGED}
+                        docker push ${IMAGE_TAGGED}
+                    '''
                 }
             }
         }
 
-        stage('Deploy Application') {
+        stage('Deploy to Kubernetes') {
             steps {
-                container('kubectl') {
-                    dir('k8s-deployment') {
-                        sh """
-                            kubectl apply -f deployment.yaml
-                            kubectl rollout status deployment/restaurant-backend -n 2401020
-                            kubectl rollout status deployment/restaurant-frontend -n 2401020
-                        """
+                script {
+                    container('kubectl') {
+                        dir('k8s') {
+                            sh """
+                                kubectl apply -f restaurant-deployment.yaml
+
+                                echo "⏳ Checking rollout status..."
+                                kubectl rollout status deployment/restaurant-frontend-deployment -n ${NAMESPACE}
+
+                                echo "✔ Restaurant Reservation App successfully deployed!"
+                            """
+                        }
                     }
                 }
             }
         }
     }
 }
-

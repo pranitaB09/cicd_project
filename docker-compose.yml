@@ -1,15 +1,31 @@
-version: '3.9'
+version: "3.8"
+
 services:
   backend:
     build: ./backend
+    container_name: restaurant-backend
     ports:
-      - "4000:4000"
+      - "5000:5000"
     environment:
-      PORT: 4000
-      MONGO_URI: "mongodb+srv://sangita:pSE3b8MvdP6WkkhC@cluster0.qclkto5.mongodb.net/RESERVATIONS"
-      FRONTEND_URL: "http://localhost:5173"
+      - MONGO_URI=mongodb://mongo:27017/restaurant
+    depends_on:
+      - mongo
 
   frontend:
     build: ./frontend
+    container_name: restaurant-frontend
     ports:
-      - "5173:80"
+      - "80:80"
+    depends_on:
+      - backend
+
+  mongo:
+    image: mongo:6
+    container_name: restaurant-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:
