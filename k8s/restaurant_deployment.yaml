@@ -31,17 +31,14 @@ spec:
         - name: restaurant-container
           image: 127.0.0.1:30085/2401020/restaurant-reservation:latest
           imagePullPolicy: Always
-
           ports:
             - containerPort: 80
-
           readinessProbe:
             httpGet:
               path: /
               port: 80
             initialDelaySeconds: 10
             periodSeconds: 10
-
           livenessProbe:
             httpGet:
               path: /
