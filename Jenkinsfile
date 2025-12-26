@@ -101,29 +101,24 @@ spec:
         }
 
         stage('SonarQube Analysis') {
-            steps {
-                container('sonar-scanner') {
-                    withCredentials([
-                        string(
-                            credentialsId: 'sonar-token-2401020',
-                            variable: 'SONAR_TOKEN'
-                        )
-                    ]) {
-                        sh '''
-                            echo "🔍 Running SonarQube Analysis..."
-
-                            sonar-scanner \
-                              -Dsonar.projectKey=${PROJECT_KEY} \
-                              -Dsonar.projectName=${PROJECT_NAME} \
-                              -Dsonar.sources=${SONAR_SOURCES} \
-                              -Dsonar.host.url=${SONAR_URL} \
-                              -Dsonar.token=${SONAR_TOKEN} \
-                              -Dsonar.sourceEncoding=UTF-8
-                        '''
-                    }
-                }
+    steps {
+        container('sonar-scanner') {
+            withCredentials([
+                string(credentialsId: 'sonar-token-2401020', variable: 'SONAR_TOKEN')
+            ]) {
+                sh '''
+                    echo "🔍 Running SonarQube Analysis..."
+                    sonar-scanner \
+                      -Dsonar.projectKey=2401020_Restaurant_project \
+                      -Dsonar.projectName=2401020_Restaurant_project \
+                      -Dsonar.sources=frontend,backend \
+                      -Dsonar.host.url=http://sonarqube.sonarqube.svc.cluster.local:9000 \
+                      -Dsonar.token=${SONAR_TOKEN}
+                '''
             }
         }
+    }
+}
 
         stage('Deploy to Kubernetes') {
             steps {
