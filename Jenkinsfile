@@ -43,16 +43,10 @@ spec:
     volumeMounts:
     - name: docker-storage
       mountPath: /var/lib/docker
-    - name: docker-config
-      mountPath: /etc/docker/daemon.json
-      subPath: daemon.json
 
   volumes:
   - name: docker-storage
     emptyDir: {}
-  - name: docker-config
-    configMap:
-      name: docker-daemon-config
   - name: kubeconfig-secret
     secret:
       secretName: kubeconfig-secret
@@ -65,17 +59,15 @@ spec:
         // ---------- SONAR CONFIG ----------
         PROJECT_KEY   = "2401020_Restaurant_project"
         PROJECT_NAME  = "2401020_Restaurant_project"
-        SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
-        SONAR_SOURCES = "backend,frontend"
+        SONAR_URL     = "http://sonarqube.sonarqube.svc.cluster.local:9000"
+        SONAR_SOURCES = "frontend,backend"
 
-        // ---------- DOCKER / NEXUS CONFIG ----------
-        IMAGE_LOCAL   = "restaurant-app:latest"
-        REGISTRY      = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
-        REGISTRY_PATH = "2401020/restaurant-reservation"
-        IMAGE_TAGGED  = "${REGISTRY}/${REGISTRY_PATH}:latest"
+        // ---------- DOCKER CONFIG ----------
+        BACKEND_IMAGE  = "mern-backend:latest"
+        FRONTEND_IMAGE = "mern-frontend:latest"
 
         // ---------- K8S CONFIG ----------
-        NAMESPACE     = "2401020"
+        NAMESPACE = "2401020"
     }
 
     stages {
@@ -87,18 +79,22 @@ spec:
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Docker Images') {
             steps {
                 container('dind') {
                     sh '''
-                        echo "⏳ Waiting for Docker daemon..."
+                        echo "⏳ Waiting for Docker..."
                         until docker info > /dev/null 2>&1; do
                           sleep 3
                         done
 
-                        echo "🐳 Building Docker Image..."
-                        docker build -t ${IMAGE_LOCAL} .
-                        docker image ls
+                        echo "🐳 Building Backend Image..."
+                        docker build -t ${BACKEND_IMAGE} -f Dockerfile.backend .
+
+                        echo "🐳 Building Frontend Image..."
+                        docker build -t ${FRONTEND_IMAGE} -f Dockerfile.frontend .
+
+                        docker images
                     '''
                 }
             }
@@ -129,48 +125,18 @@ spec:
             }
         }
 
-        stage('Login to Docker Registry (Nexus)') {
-            steps {
-                container('dind') {
-                    sh '''
-                        until docker info > /dev/null 2>&1; do
-                          sleep 3
-                        done
-
-                        docker --version
-                        docker login ${REGISTRY} -u admin -p Changeme@2025
-                    '''
-                }
-            }
-        }
-
-        stage('Tag & Push Image to Nexus') {
-            steps {
-                container('dind') {
-                    sh '''
-                        echo "📤 Tagging & Pushing Image..."
-                        docker tag ${IMAGE_LOCAL} ${IMAGE_TAGGED}
-                        docker push ${IMAGE_TAGGED}
-                    '''
-                }
-            }
-        }
-
         stage('Deploy to Kubernetes') {
             steps {
-                script {
-                    container('kubectl') {
-                        dir('k8s') {
-                            sh """
-                                kubectl apply -f restaurant-deployment.yaml
+                container('kubectl') {
+                    sh '''
+                        echo "🚀 Deploying MERN Application..."
+                        kubectl apply -f k8s/ -n ${NAMESPACE}
 
-                                echo "⏳ Checking rollout status..."
-                                kubectl rollout status deployment/restaurant-deployment -n ${NAMESPACE}
+                        kubectl rollout status deployment/backend -n ${NAMESPACE}
+                        kubectl rollout status deployment/frontend -n ${NAMESPACE}
 
-                                echo "✔ Restaurant Reservation App successfully deployed!"
-                            """
-                        }
-                    }
+                        echo "✅ MERN Application Deployed Successfully"
+                    '''
                 }
             }
         }
