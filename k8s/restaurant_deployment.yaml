@@ -29,16 +29,18 @@ spec:
         - name: nexus-secret
       containers:
         - name: restaurant-container
-          image: 127.0.0.1:30085/2401020/restaurant-reservation:latest
+          image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401020/restaurant-reservation:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 80
+
           readinessProbe:
             httpGet:
               path: /
               port: 80
             initialDelaySeconds: 10
             periodSeconds: 10
+
           livenessProbe:
             httpGet:
               path: /
