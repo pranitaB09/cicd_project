@@ -56,17 +56,15 @@ spec:
 
     environment {
 
-        // ---------- SONAR CONFIG ----------
         PROJECT_KEY   = "2401020_Restaurant_project"
         PROJECT_NAME  = "2401020_Restaurant_project"
         SONAR_URL     = "http://sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "frontend,backend"
 
-        // ---------- DOCKER CONFIG ----------
-        BACKEND_IMAGE  = "mern-backend:latest"
-        FRONTEND_IMAGE = "mern-frontend:latest"
+        NEXUS_REGISTRY = "nexus.nexus.svc.cluster.local:5000"
+        BACKEND_IMAGE  = "${NEXUS_REGISTRY}/mern-backend:latest"
+        FRONTEND_IMAGE = "${NEXUS_REGISTRY}/mern-frontend:latest"
 
-        // ---------- K8S CONFIG ----------
         NAMESPACE = "2401020"
     }
 
@@ -74,8 +72,28 @@ spec:
 
         stage('Checkout Code') {
             steps {
-                git url: 'https://github.com/pranitaB09/cicd_project.git',
-                    branch: 'main'
+                git url: 'https://github.com/pranitaB09/cicd_project.git', branch: 'main'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                container('sonar-scanner') {
+                    withCredentials([
+                        string(credentialsId: 'sonar-token-2401020', variable: 'SONAR_TOKEN')
+                    ]) {
+                        sh '''
+                            echo "🔍 Running SonarQube Analysis..."
+                            sonar-scanner \
+                              -Dsonar.projectKey=${PROJECT_KEY} \
+                              -Dsonar.projectName=${PROJECT_NAME} \
+                              -Dsonar.sources=${SONAR_SOURCES} \
+                              -Dsonar.host.url=${SONAR_URL} \
+                              -Dsonar.token=${SONAR_TOKEN} \
+                              -Dsonar.sourceEncoding=UTF-8
+                        '''
+                    }
+                }
             }
         }
 
@@ -83,54 +101,45 @@ spec:
             steps {
                 container('dind') {
                     sh '''
-                        echo "⏳ Waiting for Docker..."
-                        until docker info > /dev/null 2>&1; do
-                          sleep 3
-                        done
+                        until docker info > /dev/null 2>&1; do sleep 3; done
 
-                        echo "🐳 Building Backend Image..."
                         docker build -t ${BACKEND_IMAGE} -f Dockerfile.backend .
-
-                        echo "🐳 Building Frontend Image..."
                         docker build -t ${FRONTEND_IMAGE} -f Dockerfile.frontend .
-
-                        docker images
                     '''
                 }
             }
         }
 
-        stage('SonarQube Analysis') {
-    steps {
-        container('sonar-scanner') {
-            withCredentials([
-                string(credentialsId: 'sonar-token-2401020', variable: 'SONAR_TOKEN')
-            ]) {
-                sh '''
-                    echo "🔍 Running SonarQube Analysis..."
-                    sonar-scanner \
-                      -Dsonar.projectKey=2401020_Restaurant_project \
-                      -Dsonar.projectName=2401020_Restaurant_project \
-                      -Dsonar.sources=frontend,backend \
-                      -Dsonar.host.url=http://sonarqube.sonarqube.svc.cluster.local:9000 \
-                      -Dsonar.token=${SONAR_TOKEN}
-                '''
+        stage('Push Images to Nexus') {
+            steps {
+                container('dind') {
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'nexus-docker-creds',
+                            usernameVariable: 'NEXUS_USER',
+                            passwordVariable: 'NEXUS_PASS'
+                        )
+                    ]) {
+                        sh '''
+                            echo "🔐 Logging into Nexus..."
+                            docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
+
+                            docker push ${BACKEND_IMAGE}
+                            docker push ${FRONTEND_IMAGE}
+                        '''
+                    }
+                }
             }
         }
-    }
-}
 
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
                     sh '''
-                        echo "🚀 Deploying MERN Application..."
                         kubectl apply -f k8s/ -n ${NAMESPACE}
 
                         kubectl rollout status deployment/backend -n ${NAMESPACE}
                         kubectl rollout status deployment/frontend -n ${NAMESPACE}
-
-                        echo "✅ MERN Application Deployed Successfully"
                     '''
                 }
             }
