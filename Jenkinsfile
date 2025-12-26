@@ -68,9 +68,6 @@ spec:
         SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "backend,frontend"
 
-        // 🔐 Sonar token from Jenkins Secret Text
-        SONAR_TOKEN = credentials('sonar-token-2401020')
-
         // ---------- DOCKER / NEXUS CONFIG ----------
         IMAGE_LOCAL   = "restaurant-app:latest"
         REGISTRY      = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
@@ -110,17 +107,24 @@ spec:
         stage('SonarQube Analysis') {
             steps {
                 container('sonar-scanner') {
-                    sh '''
-                        echo "🔍 Running SonarQube Analysis..."
+                    withCredentials([
+                        string(
+                            credentialsId: 'sonar-token-2401020',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+                        sh '''
+                            echo "🔍 Running SonarQube Analysis..."
 
-                        sonar-scanner \
-                          -Dsonar.projectKey=${PROJECT_KEY} \
-                          -Dsonar.projectName=${PROJECT_NAME} \
-                          -Dsonar.sources=${SONAR_SOURCES} \
-                          -Dsonar.host.url=${SONAR_URL} \
-                          -Dsonar.token=${SONAR_TOKEN} \
-                          -Dsonar.sourceEncoding=UTF-8
-                    '''
+                            sonar-scanner \
+                              -Dsonar.projectKey=${PROJECT_KEY} \
+                              -Dsonar.projectName=${PROJECT_NAME} \
+                              -Dsonar.sources=${SONAR_SOURCES} \
+                              -Dsonar.host.url=${SONAR_URL} \
+                              -Dsonar.token=${SONAR_TOKEN} \
+                              -Dsonar.sourceEncoding=UTF-8
+                        '''
+                    }
                 }
             }
         }
@@ -154,16 +158,18 @@ spec:
 
         stage('Deploy to Kubernetes') {
             steps {
-                container('kubectl') {
-                    dir('k8s') {
-                        sh """
-                            kubectl apply -f restaurant-deployment.yaml
+                script {
+                    container('kubectl') {
+                        dir('k8s') {
+                            sh """
+                                kubectl apply -f restaurant-deployment.yaml
 
-                            echo "⏳ Checking rollout status..."
-                            kubectl rollout status deployment/restaurant-frontend-deployment -n ${NAMESPACE}
+                                echo "⏳ Checking rollout status..."
+                                kubectl rollout status deployment/restaurant-frontend-deployment -n ${NAMESPACE}
 
-                            echo "✔ Restaurant Reservation App successfully deployed!"
-                        """
+                                echo "✔ Restaurant Reservation App successfully deployed!"
+                            """
+                        }
                     }
                 }
             }
