@@ -8,13 +8,13 @@ kind: Pod
 spec:
   containers:
 
-  # ---------- SONAR SCANNER ----------
+  // ---------- SONAR SCANNER ----------
   - name: sonar-scanner
     image: sonarsource/sonar-scanner-cli
     command: ["cat"]
     tty: true
 
-  # ---------- KUBECTL ----------
+  // ---------- KUBECTL ----------
   - name: kubectl
     image: bitnami/kubectl:latest
     command: ["cat"]
@@ -30,7 +30,7 @@ spec:
       mountPath: /kube/config
       subPath: kubeconfig
 
-  # ---------- DOCKER (DIND) ----------
+  // ---------- DOCKER (DIND) ----------
   - name: dind
     image: docker:24-dind
     securityContext:
@@ -60,18 +60,18 @@ spec:
 
     environment {
 
-        # ---------- SONAR CONFIG ----------
+        // ---------- SONAR CONFIG ----------
         PROJECT_KEY   = "2401020_Restaurant_project"
         PROJECT_NAME  = "2401020_Restaurant_project"
         SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "frontend,backend"
 
-        # ---------- NEXUS CONFIG ----------
+        // ---------- NEXUS CONFIG ----------
         NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
         BACKEND_IMAGE  = "${NEXUS_REGISTRY}/mern-backend:latest"
         FRONTEND_IMAGE = "${NEXUS_REGISTRY}/mern-frontend:latest"
 
-        # ---------- K8S ----------
+        // ---------- K8S CONFIG ----------
         NAMESPACE = "2401020"
     }
 
