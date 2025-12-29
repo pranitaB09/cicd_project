@@ -17,7 +17,6 @@ spec:
         - name: nexus-secret
       containers:
         - name: frontend
-          image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/mern-frontend:latest
-          imagePullPolicy: Always
+          image: nexus.imcc.com:8085/my-repository/mern-frontend:latest
           ports:
             - containerPort: 80
