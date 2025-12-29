@@ -62,9 +62,16 @@ spec:
         SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "frontend,backend"
 
-        NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/my-repository"
-        BACKEND_IMAGE  = "${NEXUS_REGISTRY}/mern-backend:latest"
-        FRONTEND_IMAGE = "${NEXUS_REGISTRY}/mern-frontend:latest"
+        NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
+        REPO_NAME = "my-repository"
+
+        BACKEND_IMAGE  = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-backend:latest"
+        FRONTEND_IMAGE = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-frontend:latest"
+
+
+        // NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/my-repository"
+        // BACKEND_IMAGE  = "${NEXUS_REGISTRY}/mern-backend:latest"
+        // FRONTEND_IMAGE = "${NEXUS_REGISTRY}/mern-frontend:latest"
 
         NAMESPACE = "2401020"
     }
@@ -108,28 +115,55 @@ spec:
             }
         }
 
-        stage('Push Images to Nexus') {
-            steps {
-                container('dind') {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'nexus-docker-creds',
-                            usernameVariable: 'NEXUS_USER',
-                            passwordVariable: 'NEXUS_PASS'
-                        )
-                    ]) {
-                        sh '''
-                        echo "${NEXUS_PASS}" | docker login \
-                          nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085 \
-                          -u ${NEXUS_USER} --password-stdin
+        // stage('Push Images to Nexus') {
+        //     steps {
+        //         container('dind') {
+        //             withCredentials([
+        //                 usernamePassword(
+        //                     credentialsId: 'nexus-docker-creds',
+        //                     usernameVariable: 'NEXUS_USER',
+        //                     passwordVariable: 'NEXUS_PASS'
+        //                 )
+        //             ]) {
+        //                 sh '''
+        //                echo "${NEXUS_PASS}" | docker login \
+        //                --username ${NEXUS_USER} \
+        //                --password-stdin \
+        //                http://${NEXUS_REGISTRY}
 
-                        docker push ${BACKEND_IMAGE}
-                        docker push ${FRONTEND_IMAGE}
-                        '''
-                    }
-                }
+
+        //                 docker push ${BACKEND_IMAGE}
+        //                 docker push ${FRONTEND_IMAGE}
+        //                 '''
+        //             }
+        //         }
+        //     }
+        // }
+        stage('Push Images to Nexus') {
+    steps {
+        container('dind') {
+            withCredentials([
+                usernamePassword(
+                    credentialsId: 'nexus-docker-creds',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )
+            ]) {
+                sh '''
+                    echo "Logging into Nexus..."
+                    echo "${NEXUS_PASS}" | docker login \
+                      --username ${NEXUS_USER} \
+                      --password-stdin \
+                      http://${NEXUS_REGISTRY}
+
+                    docker push ${BACKEND_IMAGE}
+                    docker push ${FRONTEND_IMAGE}
+                '''
             }
         }
+    }
+}
+
 
         stage('Deploy to Kubernetes') {
             steps {
