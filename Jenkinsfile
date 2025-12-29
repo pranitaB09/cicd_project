@@ -8,11 +8,13 @@ kind: Pod
 spec:
   containers:
 
+  # ---------- SONAR SCANNER ----------
   - name: sonar-scanner
     image: sonarsource/sonar-scanner-cli
     command: ["cat"]
     tty: true
 
+  # ---------- KUBECTL ----------
   - name: kubectl
     image: bitnami/kubectl:latest
     command: ["cat"]
@@ -28,6 +30,7 @@ spec:
       mountPath: /kube/config
       subPath: kubeconfig
 
+  # ---------- DOCKER (DIND) ----------
   - name: dind
     image: docker:24-dind
     securityContext:
@@ -40,6 +43,7 @@ spec:
     args:
     - --host=unix:///var/run/docker.sock
     - --storage-driver=overlay2
+    - --insecure-registry=nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085
     volumeMounts:
     - name: docker-storage
       mountPath: /var/lib/docker
@@ -56,18 +60,18 @@ spec:
 
     environment {
 
-        // ---------- SONAR CONFIG ----------
+        # ---------- SONAR CONFIG ----------
         PROJECT_KEY   = "2401020_Restaurant_project"
         PROJECT_NAME  = "2401020_Restaurant_project"
         SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "frontend,backend"
 
-        // ---------- NEXUS CONFIG (FIXED) ----------
+        # ---------- NEXUS CONFIG ----------
         NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
         BACKEND_IMAGE  = "${NEXUS_REGISTRY}/mern-backend:latest"
         FRONTEND_IMAGE = "${NEXUS_REGISTRY}/mern-frontend:latest"
 
-        // ---------- K8S CONFIG ----------
+        # ---------- K8S ----------
         NAMESPACE = "2401020"
     }
 
@@ -104,6 +108,7 @@ spec:
             steps {
                 container('dind') {
                     sh '''
+                        echo "⏳ Waiting for Docker..."
                         until docker info > /dev/null 2>&1; do sleep 3; done
 
                         docker build -t ${BACKEND_IMAGE} -f Dockerfile.backend .
