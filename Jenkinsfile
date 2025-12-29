@@ -40,6 +40,7 @@ spec:
     args:
     - --host=unix:///var/run/docker.sock
     - --storage-driver=overlay2
+    - --insecure-registry=nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085
     volumeMounts:
     - name: docker-storage
       mountPath: /var/lib/docker
@@ -61,7 +62,8 @@ spec:
         SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "frontend,backend"
 
-        NEXUS_REGISTRY = "nexus.nexus.svc.cluster.local:5000"
+        NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
+
         BACKEND_IMAGE  = "${NEXUS_REGISTRY}/mern-backend:latest"
         FRONTEND_IMAGE = "${NEXUS_REGISTRY}/mern-frontend:latest"
 
@@ -83,14 +85,12 @@ spec:
                         string(credentialsId: 'sonar-token-2401020', variable: 'SONAR_TOKEN')
                     ]) {
                         sh '''
-                            echo "🔍 Running SonarQube Analysis..."
-                            sonar-scanner \
-                              -Dsonar.projectKey=${PROJECT_KEY} \
-                              -Dsonar.projectName=${PROJECT_NAME} \
-                              -Dsonar.sources=${SONAR_SOURCES} \
-                              -Dsonar.host.url=${SONAR_URL} \
-                              -Dsonar.token=${SONAR_TOKEN} \
-                              -Dsonar.sourceEncoding=UTF-8
+                        sonar-scanner \
+                          -Dsonar.projectKey=${PROJECT_KEY} \
+                          -Dsonar.projectName=${PROJECT_NAME} \
+                          -Dsonar.sources=${SONAR_SOURCES} \
+                          -Dsonar.host.url=${SONAR_URL} \
+                          -Dsonar.token=${SONAR_TOKEN}
                         '''
                     }
                 }
@@ -101,10 +101,10 @@ spec:
             steps {
                 container('dind') {
                     sh '''
-                        until docker info > /dev/null 2>&1; do sleep 3; done
+                    until docker info > /dev/null 2>&1; do sleep 3; done
 
-                        docker build -t ${BACKEND_IMAGE} -f Dockerfile.backend .
-                        docker build -t ${FRONTEND_IMAGE} -f Dockerfile.frontend .
+                    docker build -t ${BACKEND_IMAGE} -f Dockerfile.backend .
+                    docker build -t ${FRONTEND_IMAGE} -f Dockerfile.frontend .
                     '''
                 }
             }
@@ -121,11 +121,9 @@ spec:
                         )
                     ]) {
                         sh '''
-                            echo "🔐 Logging into Nexus..."
-                            docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
-
-                            docker push ${BACKEND_IMAGE}
-                            docker push ${FRONTEND_IMAGE}
+                        echo "${NEXUS_PASS}" | docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} --password-stdin
+                        docker push ${BACKEND_IMAGE}
+                        docker push ${FRONTEND_IMAGE}
                         '''
                     }
                 }
@@ -136,10 +134,9 @@ spec:
             steps {
                 container('kubectl') {
                     sh '''
-                        kubectl apply -f k8s/ -n ${NAMESPACE}
-
-                        kubectl rollout status deployment/backend -n ${NAMESPACE}
-                        kubectl rollout status deployment/frontend -n ${NAMESPACE}
+                    kubectl apply -f k8s/ -n ${NAMESPACE}
+                    kubectl rollout status deployment/backend -n ${NAMESPACE}
+                    kubectl rollout status deployment/frontend -n ${NAMESPACE}
                     '''
                 }
             }

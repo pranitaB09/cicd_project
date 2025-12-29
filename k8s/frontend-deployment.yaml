@@ -13,8 +13,11 @@ spec:
       labels:
         app: frontend
     spec:
+      imagePullSecrets:
+        - name: nexus-secret
       containers:
-      - name: frontend
-        image: frontend:latest
-        ports:
-        - containerPort: 80
+        - name: frontend
+          image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/mern-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80

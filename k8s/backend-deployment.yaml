@@ -13,8 +13,11 @@ spec:
       labels:
         app: backend
     spec:
+      imagePullSecrets:
+        - name: nexus-secret
       containers:
-      - name: backend
-        image: backend:latest
-        ports:
-        - containerPort: 5000
+        - name: backend
+          image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/mern-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
