@@ -56,15 +56,18 @@ spec:
 
     environment {
 
+        // ---------- SONAR CONFIG ----------
         PROJECT_KEY   = "2401020_Restaurant_project"
         PROJECT_NAME  = "2401020_Restaurant_project"
         SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "frontend,backend"
 
-        NEXUS_REGISTRY = "nexus.nexus.svc.cluster.local:5000"
+        // ---------- NEXUS CONFIG (FIXED) ----------
+        NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
         BACKEND_IMAGE  = "${NEXUS_REGISTRY}/mern-backend:latest"
         FRONTEND_IMAGE = "${NEXUS_REGISTRY}/mern-frontend:latest"
 
+        // ---------- K8S CONFIG ----------
         NAMESPACE = "2401020"
     }
 
@@ -122,7 +125,7 @@ spec:
                     ]) {
                         sh '''
                             echo "🔐 Logging into Nexus..."
-                            docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
+                            echo "${NEXUS_PASS}" | docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} --password-stdin
 
                             docker push ${BACKEND_IMAGE}
                             docker push ${FRONTEND_IMAGE}
