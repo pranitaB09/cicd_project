@@ -1,5 +1,4 @@
 pipeline {
-
     agent {
         kubernetes {
             yaml '''
@@ -7,7 +6,6 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
-
   - name: sonar-scanner
     image: sonarsource/sonar-scanner-cli
     command: ["cat"]
@@ -56,24 +54,19 @@ spec:
     }
 
     environment {
-
         PROJECT_KEY   = "2401020_Restaurant_project"
         PROJECT_NAME  = "2401020_Restaurant_project"
         SONAR_URL     = "http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
         SONAR_SOURCES = "frontend,backend"
 
         NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
-        REPO_NAME = "my-repository"
+        REPO_NAME      = "my-repository"
 
-        BACKEND_IMAGE  = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-backend:latest"
-        FRONTEND_IMAGE = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-frontend:latest"
+        IMAGE_TAG      = "${BUILD_NUMBER}" // Unique version per build
+        BACKEND_IMAGE  = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-backend:${IMAGE_TAG}"
+        FRONTEND_IMAGE = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-frontend:${IMAGE_TAG}"
 
-
-        // NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/my-repository"
-        // BACKEND_IMAGE  = "${NEXUS_REGISTRY}/mern-backend:latest"
-        // FRONTEND_IMAGE = "${NEXUS_REGISTRY}/mern-frontend:latest"
-
-        NAMESPACE = "2401020"
+        NAMESPACE      = "2401020"
     }
 
     stages {
@@ -96,7 +89,7 @@ spec:
                           -Dsonar.projectName=${PROJECT_NAME} \
                           -Dsonar.sources=${SONAR_SOURCES} \
                           -Dsonar.host.url=${SONAR_URL} \
-                          -Dsonar.token=${SONAR_TOKEN}
+                          -Dsonar.login=${SONAR_TOKEN}
                         '''
                     }
                 }
@@ -108,69 +101,52 @@ spec:
                 container('dind') {
                     sh '''
                     until docker info > /dev/null 2>&1; do sleep 3; done
+                    echo "Building Backend Image..."
                     docker build -t ${BACKEND_IMAGE} -f Dockerfile.backend .
+                    echo "Building Frontend Image..."
                     docker build -t ${FRONTEND_IMAGE} -f Dockerfile.frontend .
+                    docker images
                     '''
                 }
             }
         }
 
-        // stage('Push Images to Nexus') {
-        //     steps {
-        //         container('dind') {
-        //             withCredentials([
-        //                 usernamePassword(
-        //                     credentialsId: 'nexus-docker-creds',
-        //                     usernameVariable: 'NEXUS_USER',
-        //                     passwordVariable: 'NEXUS_PASS'
-        //                 )
-        //             ]) {
-        //                 sh '''
-        //                echo "${NEXUS_PASS}" | docker login \
-        //                --username ${NEXUS_USER} \
-        //                --password-stdin \
-        //                http://${NEXUS_REGISTRY}
-
-
-        //                 docker push ${BACKEND_IMAGE}
-        //                 docker push ${FRONTEND_IMAGE}
-        //                 '''
-        //             }
-        //         }
-        //     }
-        // }
         stage('Push Images to Nexus') {
-    steps {
-        container('dind') {
-            withCredentials([
-                usernamePassword(
-                    credentialsId: 'nexus-docker-creds',
-                    usernameVariable: 'NEXUS_USER',
-                    passwordVariable: 'NEXUS_PASS'
-                )
-            ]) {
-                sh '''
-                    echo "Logging into Nexus..."
-                    echo "${NEXUS_PASS}" | docker login \
-                      --username ${NEXUS_USER} \
-                      --password-stdin \
-                      http://${NEXUS_REGISTRY}
+            steps {
+                container('dind') {
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'nexus-docker-creds',
+                            usernameVariable: 'NEXUS_USER',
+                            passwordVariable: 'NEXUS_PASS'
+                        )
+                    ]) {
+                        sh '''
+                        echo "Logging into Nexus..."
+                        echo $NEXUS_PASS | docker login $NEXUS_REGISTRY -u $NEXUS_USER --password-stdin
 
-                    docker push ${BACKEND_IMAGE}
-                    docker push ${FRONTEND_IMAGE}
-                '''
+                        echo "Pushing Backend Image..."
+                        docker push ${BACKEND_IMAGE}
+
+                        echo "Pushing Frontend Image..."
+                        docker push ${FRONTEND_IMAGE}
+                        '''
+                    }
+                }
             }
         }
-    }
-}
-
 
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
                     sh '''
+                    echo "Applying Kubernetes manifests..."
                     kubectl apply -f k8s/ -n ${NAMESPACE}
+
+                    echo "Waiting for Backend deployment..."
                     kubectl rollout status deployment/backend -n ${NAMESPACE}
+
+                    echo "Waiting for Frontend deployment..."
                     kubectl rollout status deployment/frontend -n ${NAMESPACE}
                     '''
                 }

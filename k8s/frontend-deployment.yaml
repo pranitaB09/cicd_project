@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
+  namespace: 2401020
 spec:
   replicas: 1
   selector:
@@ -18,4 +19,16 @@ spec:
         - name: frontend
           image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/my-repository/mern-frontend:latest
           ports:
-            - containerPort: 3000
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 20
