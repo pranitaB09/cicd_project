@@ -111,26 +111,26 @@ spec:
         }
 
         stage('Push Images to Nexus') {
-            steps {
-                container('dind') {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'nexus-docker-creds',
-                            usernameVariable: 'NEXUS_USER',
-                            passwordVariable: 'NEXUS_PASS'
-                        )
-                    ]) {
-                        sh '''
-                            echo "🔐 Logging into Nexus..."
-                            docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
+    steps {
+        container('dind') {
+            withCredentials([
+                usernamePassword(
+                    credentialsId: 'nexus-docker-creds',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )
+            ]) {
+                sh '''
+                    echo "🔐 Logging into Nexus..."
+                    echo "${NEXUS_PASS}" | docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} --password-stdin
 
-                            docker push ${BACKEND_IMAGE}
-                            docker push ${FRONTEND_IMAGE}
-                        '''
-                    }
-                }
+                    docker push ${BACKEND_IMAGE}
+                    docker push ${FRONTEND_IMAGE}
+                '''
             }
         }
+    }
+}
 
         stage('Deploy to Kubernetes') {
             steps {
