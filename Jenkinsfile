@@ -122,7 +122,7 @@ spec:
         }
 
         stage('Push Images to Nexus') {
-            steps { {
+            steps { 
                         sh '''
 
                         echo "Pushing Backend Image..."
