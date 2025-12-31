@@ -20,6 +20,9 @@ spec:
           image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/my-repository/mern-backend:latest
           ports:
             - containerPort: 5000
+            env:
+            - name: MONGO_URI
+            value: "mongodb+srv://sangita:pSE3b8MvdP6WkkhC@cluster0.qclkto5.mongodb.net/?retryWrites=true"
           readinessProbe:
             httpGet:
               path: /health
