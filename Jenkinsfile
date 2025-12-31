@@ -62,9 +62,9 @@ spec:
         NEXUS_REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
         REPO_NAME      = "my-repository"
 
-        IMAGE_TAG      = "${BUILD_NUMBER}" // Unique version per build
-        BACKEND_IMAGE  = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-backend:${IMAGE_TAG}"
-        FRONTEND_IMAGE = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-frontend:${IMAGE_TAG}"
+        //IMAGE_TAG      = "${BUILD_NUMBER}" // Unique version per build
+        BACKEND_IMAGE  = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-backend:latest"
+        FRONTEND_IMAGE = "${NEXUS_REGISTRY}/${REPO_NAME}/mern-frontend:latest"
 
         NAMESPACE      = "2401020"
     }
@@ -111,19 +111,19 @@ spec:
             }
         }
 
-        stage('Push Images to Nexus') {
+        stage('Login to Docker Registry') {
             steps {
                 container('dind') {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'nexus-docker-creds',
-                            usernameVariable: 'NEXUS_USER',
-                            passwordVariable: 'NEXUS_PASS'
-                        )
-                    ]) {
+                    sh 'docker --version'
+                    sh 'sleep 10'
+                    sh 'docker login nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085 -u admin -p Changeme@2025'
+                }
+            }
+        }
+
+        stage('Push Images to Nexus') {
+            steps { {
                         sh '''
-                        echo "Logging into Nexus..."
-                        echo $NEXUS_PASS | docker login $NEXUS_REGISTRY -u $NEXUS_USER --password-stdin
 
                         echo "Pushing Backend Image..."
                         docker push ${BACKEND_IMAGE}
