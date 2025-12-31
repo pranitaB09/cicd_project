@@ -133,7 +133,7 @@ spec:
                         '''
                     }
                 }
-            }
+            
         }
 
         stage('Deploy to Kubernetes') {
