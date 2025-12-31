@@ -21,6 +21,7 @@ spec:
           ports:
             - containerPort: 5000
           env:
+            
             - name: MONGO_URI
               value: "mongodb+srv://sangita:pSE3b8MvdP6WkkhC@cluster0.qclkto5.mongodb.net/?retryWrites=true"
           readinessProbe:
