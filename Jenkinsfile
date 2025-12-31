@@ -121,20 +121,20 @@ spec:
             }
         }
 
-        stage('Push Images to Nexus') {
-            steps { 
-                        sh '''
+       stage('Push Images to Nexus') {
+    steps {
+        container('dind') {
+            sh '''
+                echo "Pushing Backend Image..."
+                docker push ${BACKEND_IMAGE}
 
-                        echo "Pushing Backend Image..."
-                        docker push ${BACKEND_IMAGE}
-
-                        echo "Pushing Frontend Image..."
-                        docker push ${FRONTEND_IMAGE}
-                        '''
-                    }
-                }
-            
+                echo "Pushing Frontend Image..."
+                docker push ${FRONTEND_IMAGE}
+            '''
         }
+    }
+}
+
 
         stage('Deploy to Kubernetes') {
             steps {
