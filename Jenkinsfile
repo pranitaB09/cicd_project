@@ -136,21 +136,47 @@ spec:
 }
 
 
-        stage('Deploy to Kubernetes') {
-            steps {
-                container('kubectl') {
-                    sh '''
-                    echo "Applying Kubernetes manifests..."
-                    kubectl apply -f k8s/ -n ${NAMESPACE}
+//         stage('Deploy to Kubernetes') {
+//             steps {
+//                 container('kubectl') {
+//                     sh '''
+//                     echo "Applying Kubernetes manifests..."
+//                     kubectl apply -f k8s/ -n ${NAMESPACE}
 
-                    echo "Waiting for Backend deployment..."
-                    kubectl rollout status deployment/backend -n ${NAMESPACE}
+//                     echo "Waiting for Backend deployment..."
+//                     kubectl rollout status deployment/backend -n ${NAMESPACE}
 
-                    echo "Waiting for Frontend deployment..."
-                    kubectl rollout status deployment/frontend -n ${NAMESPACE}
-                    '''
-                }
-            }
+//                     echo "Waiting for Frontend deployment..."
+//                     kubectl rollout status deployment/frontend -n ${NAMESPACE}
+//                     '''
+//                 }
+//             }
+//         }
+//     }
+// }
+stage('Deploy to Kubernetes') {
+    steps {
+        container('kubectl') {
+            sh '''
+            echo "Applying Kubernetes manifests..."
+            kubectl apply -f k8s/ -n ${NAMESPACE}
+
+            echo "Restarting Backend deployment..."
+            kubectl rollout restart deployment/backend -n ${NAMESPACE}
+            sleep 20
+
+            echo "Waiting for Backend deployment..."
+            kubectl rollout status deployment/backend -n ${NAMESPACE} --timeout=300s
+
+            echo "Restarting Frontend deployment..."
+            kubectl rollout restart deployment/frontend -n ${NAMESPACE}
+            sleep 10
+
+            echo "Waiting for Frontend deployment..."
+            kubectl rollout status deployment/frontend -n ${NAMESPACE} --timeout=300s
+            '''
         }
+    }
+}
     }
 }
