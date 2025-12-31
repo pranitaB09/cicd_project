@@ -20,9 +20,9 @@ spec:
           image: 127.0.0.1:30085/my-repository/mern-backend:latest
           ports:
             - containerPort: 5000
-            env:
+          env:
             - name: MONGO_URI
-            value: "mongodb+srv://sangita:pSE3b8MvdP6WkkhC@cluster0.qclkto5.mongodb.net/?retryWrites=true"
+              value: "mongodb+srv://sangita:pSE3b8MvdP6WkkhC@cluster0.qclkto5.mongodb.net/?retryWrites=true"
           readinessProbe:
             httpGet:
               path: /health
