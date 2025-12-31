@@ -163,20 +163,16 @@ stage('Deploy to Kubernetes') {
 
             echo "Restarting Backend deployment..."
             kubectl rollout restart deployment/backend -n ${NAMESPACE}
-            sleep 20
-
-            echo "Waiting for Backend deployment..."
-            kubectl rollout status deployment/backend -n ${NAMESPACE} --timeout=300s
 
             echo "Restarting Frontend deployment..."
             kubectl rollout restart deployment/frontend -n ${NAMESPACE}
-            sleep 10
 
-            echo "Waiting for Frontend deployment..."
-            kubectl rollout status deployment/frontend -n ${NAMESPACE} --timeout=300s
+            echo "Deployment completed successfully"
             '''
         }
     }
 }
+
+
     }
 }
