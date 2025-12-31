@@ -25,13 +25,13 @@ spec:
               value: "mongodb+srv://sangita:pSE3b8MvdP6WkkhC@cluster0.qclkto5.mongodb.net/?retryWrites=true"
           readinessProbe:
             httpGet:
-              path: /
+              path: /health
               port: 5000
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /
+              path: /health
               port: 5000
             initialDelaySeconds: 30
             periodSeconds: 30
